@@ -44,6 +44,10 @@ func (app *BaseApp) RegisterStreamingServices(appOpts servertypes.AppOptions, ke
 	return nil
 }
 
+func (app *BaseApp) RegisterABCIListener(listener storetypes.ABCIListener) {
+	app.streamingManager.ABCIListeners = append(app.streamingManager.ABCIListeners, listener)
+}
+
 // registerStreamingPlugin registers streaming plugins with the BaseApp.
 func (app *BaseApp) registerStreamingPlugin(
 	appOpts servertypes.AppOptions,
