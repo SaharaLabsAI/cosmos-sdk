@@ -44,6 +44,9 @@ func (w cometABCIWrapper) FinalizeBlock(_ context.Context, req *abci.RequestFina
 	return w.app.FinalizeBlock(req)
 }
 
+func (w cometABCIWrapper) RollbackCMS(_ context.Context, _ *abci.RequestRollbackCMS) (*abci.ResponseRollbackCMS, error) {
+	return w.app.RollbackCMS()
+}
 func (w cometABCIWrapper) ExtendVote(ctx context.Context, req *abci.RequestExtendVote) (*abci.ResponseExtendVote, error) {
 	return w.app.ExtendVote(ctx, req)
 }

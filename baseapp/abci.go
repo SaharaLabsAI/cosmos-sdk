@@ -892,6 +892,24 @@ func (app *BaseApp) FinalizeBlock(req *abci.RequestFinalizeBlock) (res *abci.Res
 	return res, err
 }
 
+func (app *BaseApp) RollbackCMS() (res *abci.ResponseRollbackCMS, err error) {
+	rollbackHeight := app.cms.LatestVersion() - 1
+	if rollbackHeight < 1 {
+		errStr := fmt.Sprintf("can not rollback to negative number, the latestVersion is %d", app.cms.LatestVersion())
+		return &abci.ResponseRollbackCMS{RollbackToHeight: rollbackHeight}, errors.New(errStr)
+	}
+	if err := app.cms.RollbackToVersion(app.cms.LatestVersion() - 1); err != nil {
+		return &abci.ResponseRollbackCMS{RollbackToHeight: rollbackHeight}, err
+	}
+
+	app.sealed = false
+	if err := app.LoadVersion(rollbackHeight); err != nil {
+		return &abci.ResponseRollbackCMS{RollbackToHeight: rollbackHeight}, err
+
+	}
+	return &abci.ResponseRollbackCMS{RollbackToHeight: rollbackHeight}, nil
+}
+
 // checkHalt checkes if height or time exceeds halt-height or halt-time respectively.
 func (app *BaseApp) checkHalt(height int64, time time.Time) error {
 	var halt bool

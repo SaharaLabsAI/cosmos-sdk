@@ -22,6 +22,7 @@ type ABCI interface {
 	ProcessProposal(*abci.RequestProcessProposal) (*abci.ResponseProcessProposal, error)
 	// Deliver the decided block with its txs to the Application
 	FinalizeBlock(*abci.RequestFinalizeBlock) (*abci.ResponseFinalizeBlock, error)
+	RollbackCMS() (*abci.ResponseRollbackCMS, error)
 	// Create application specific vote extension
 	ExtendVote(context.Context, *abci.RequestExtendVote) (*abci.ResponseExtendVote, error)
 	// Verify application's vote extension data
