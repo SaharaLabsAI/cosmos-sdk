@@ -82,6 +82,8 @@ const (
 	FlagTip              = "tip"
 	FlagAux              = "aux"
 	FlagInitHeight       = "initial-height"
+	FlagStartHeight      = "start-height"
+	FlagEndHeight        = "end-height"
 	// FlagOutput is the flag to set the output format.
 	// This differs from FlagOutputDocument that is used to set the output file.
 	FlagOutput = "output"
