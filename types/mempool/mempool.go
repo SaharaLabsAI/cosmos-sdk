@@ -22,6 +22,9 @@ type Mempool interface {
 	// Remove attempts to remove a transaction from the mempool, returning an error
 	// upon failure.
 	Remove(sdk.Tx) error
+
+	// GetNonceRange fetch the nonce range of given address im mempool
+	GetNonceRange(sdk.AccAddress) (uint64, uint64, error)
 }
 
 // ExtMempool is a extension of Mempool interface introduced in v0.50

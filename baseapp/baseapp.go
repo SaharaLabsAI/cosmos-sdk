@@ -938,7 +938,26 @@ func (app *BaseApp) runTx(mode execMode, txBytes []byte) (gInfo sdk.GasInfo, res
 	}
 
 	if mode == execModeCheck {
-		err = app.mempool.Insert(ctx, tx)
+		finalizeCtx := app.getState(execModeFinalize)
+
+		var insertCtx sdk.Context
+		if finalizeCtx == nil {
+			ms, err := app.cms.CacheMultiStoreWithVersion(app.LastBlockHeight())
+			if err != nil {
+				panic(err)
+			}
+			headerInfo := header.Info{
+				Height:  app.LastBlockHeight(),
+				ChainID: app.chainID,
+			}
+			insertCtx = sdk.NewContext(ms, cmtproto.Header{}, false, app.logger).
+				WithHeaderInfo(headerInfo).
+				WithConsensusParams(app.GetConsensusParams(ctx))
+		} else {
+			insertCtx = finalizeCtx.Context()
+		}
+
+		err = app.mempool.Insert(insertCtx, tx)
 		if err != nil {
 			return gInfo, nil, anteEvents, err
 		}
