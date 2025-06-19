@@ -23,8 +23,11 @@ type Mempool interface {
 	// upon failure.
 	Remove(sdk.Tx) error
 
-	// GetNonceRange fetch the nonce range of given address im mempool
+	// GetNonceRange fetch the nonce range of given address in mempool
 	GetNonceRange(sdk.AccAddress) (uint64, uint64, error)
+
+	// Dump returns all txs in app-side mempool
+	Dump(encoder sdk.TxEncoder) [][]byte
 }
 
 // ExtMempool is a extension of Mempool interface introduced in v0.50

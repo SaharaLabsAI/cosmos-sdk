@@ -251,6 +251,10 @@ func (sm *SenderNonceMempool) GetNonceRange(sdk.AccAddress) (uint64, uint64, err
 	panic("not implemented")
 }
 
+func (sm *SenderNonceMempool) Dump(encoder sdk.TxEncoder) [][]byte {
+	panic("not implemented")
+}
+
 type senderNonceMempoolIterator struct {
 	rnd           *rand.Rand
 	currentTx     *skiplist.Element

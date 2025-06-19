@@ -59,10 +59,11 @@ type (
 	// priority to other sender txs and must be partially ordered by both sender-nonce
 	// and priority.
 	PriorityNonceMempool[C comparable] struct {
-		mtx             sync.Mutex
-		priorityIndex   *skiplist.SkipList
-		priorityCounts  map[C]int
-		senderIndices   map[string]*skiplist.SkipList
+		mtx            sync.RWMutex
+		priorityIndex  *skiplist.SkipList
+		priorityCounts map[C]int
+		senderIndices  map[string]*skiplist.SkipList
+		// senderIndicesEthTx map[string]*skiplist.SkipList
 		scores          map[txMeta[C]]txMeta[C]
 		cfg             PriorityNonceMempoolConfig[C]
 		nonceRangeCache *lru.Cache[string, *nonceRange]
@@ -261,8 +262,11 @@ func (mp *PriorityNonceMempool[C]) Insert(ctx context.Context, tx sdk.Tx) error 
 		mp.senderIndices[sender] = senderIndex
 	}
 
+	var replaced, senderFirstTx bool
+
 	firstNonce, lastNonce, _ := mp.nonceRangeInternal(sender)
 	if senderIndex.Len() == 0 {
+		senderFirstTx = true
 		if mp.cfg.GetSequenceFunc != nil {
 			accNonceOnChain, err := mp.cfg.GetSequenceFunc(ctx, sig.Signer)
 			if err != nil {
@@ -270,7 +274,7 @@ func (mp *PriorityNonceMempool[C]) Insert(ctx context.Context, tx sdk.Tx) error 
 			}
 
 			if nonce < accNonceOnChain {
-				return errorsmod.Wrapf(sdkerrors.ErrInvalidSequence, "txNonce %d must larger than nonce on chain %d", nonce, accNonceOnChain)
+				return errorsmod.Wrapf(sdkerrors.ErrInvalidSequence, "txNonce %d can not less than nonce on chain %d", nonce, accNonceOnChain)
 			}
 		}
 	} else {
@@ -279,7 +283,6 @@ func (mp *PriorityNonceMempool[C]) Insert(ctx context.Context, tx sdk.Tx) error 
 		}
 	}
 
-	replaced := false
 	// Since mp.priorityIndex is scored by priority, then sender, then nonce, a
 	// changed priority will create a new key, so we must remove the old key and
 	// re-insert it to avoid having the same tx with different priorityIndex indexed
@@ -319,13 +322,37 @@ func (mp *PriorityNonceMempool[C]) Insert(ctx context.Context, tx sdk.Tx) error 
 	mp.priorityIndex.Set(key, tx)
 
 	if !replaced {
-		mp.nonceRangeCache.Add(sender, &nonceRange{
-			firstNonce: firstNonce,
-			lastNonce:  nonce,
-		})
+		if senderFirstTx {
+			mp.nonceRangeCache.Add(sender, &nonceRange{
+				firstNonce: nonce,
+				lastNonce:  nonce,
+			})
+		} else {
+			mp.nonceRangeCache.Add(sender, &nonceRange{
+				firstNonce: firstNonce,
+				lastNonce:  nonce,
+			})
+		}
 	}
 
 	return nil
+}
+
+func (mp *PriorityNonceMempool[C]) Dump(encoder sdk.TxEncoder) [][]byte {
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
+
+	txs := make([][]byte, 0, mp.priorityIndex.Len())
+	for elem := mp.priorityIndex.Front(); elem != nil; elem = elem.Next() {
+		tx := elem.Value.(sdk.Tx)
+		encodedTx, err := encoder(tx)
+		if err != nil {
+			continue
+		}
+		txs = append(txs, encodedTx)
+	}
+
+	return txs
 }
 
 func (i *PriorityNonceIterator[C]) iteratePriority() Iterator {
@@ -405,8 +432,8 @@ func (i *PriorityNonceIterator[C]) Tx() sdk.Tx {
 // NOTE: It is not safe to use this iterator while removing transactions from
 // the underlying mempool.
 func (mp *PriorityNonceMempool[C]) Select(ctx context.Context, txs [][]byte) Iterator {
-	mp.mtx.Lock()
-	defer mp.mtx.Unlock()
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
 	return mp.doSelect(ctx, txs)
 }
 
@@ -427,8 +454,8 @@ func (mp *PriorityNonceMempool[C]) doSelect(_ context.Context, _ [][]byte) Itera
 
 // SelectBy will hold the mutex during the iteration, callback returns if continue.
 func (mp *PriorityNonceMempool[C]) SelectBy(ctx context.Context, txs [][]byte, callback func(sdk.Tx) bool) {
-	mp.mtx.Lock()
-	defer mp.mtx.Unlock()
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
 
 	iter := mp.doSelect(ctx, txs)
 	for iter != nil && callback(iter.Tx()) {
@@ -490,8 +517,8 @@ func senderWeight[C comparable](txPriority TxPriority[C], senderCursor *skiplist
 
 // CountTx returns the number of transactions in the mempool.
 func (mp *PriorityNonceMempool[C]) CountTx() int {
-	mp.mtx.Lock()
-	defer mp.mtx.Unlock()
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
 	return mp.priorityIndex.Len()
 }
 
@@ -551,8 +578,8 @@ func (mp *PriorityNonceMempool[C]) GetNonceRange(sender sdk.AccAddress) (uint64,
 		return cached.firstNonce, cached.lastNonce, nil
 	}
 
-	mp.mtx.Lock()
-	defer mp.mtx.Unlock()
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
 
 	firstNonce, lastNonce, err := mp.nonceRangeInternal(senderStr)
 	if err == nil {

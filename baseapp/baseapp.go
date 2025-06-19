@@ -950,7 +950,7 @@ func (app *BaseApp) runTx(mode execMode, txBytes []byte) (gInfo sdk.GasInfo, res
 				Height:  app.LastBlockHeight(),
 				ChainID: app.chainID,
 			}
-			insertCtx = sdk.NewContext(ms, cmtproto.Header{}, false, app.logger).
+			insertCtx = sdk.NewContext(ms, cmtproto.Header{}, true, app.logger).
 				WithHeaderInfo(headerInfo).
 				WithConsensusParams(app.GetConsensusParams(ctx))
 		} else {

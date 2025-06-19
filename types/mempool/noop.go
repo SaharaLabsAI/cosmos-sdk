@@ -22,3 +22,4 @@ func (NoOpMempool) SelectBy(context.Context, [][]byte, func(sdk.Tx) bool) {}
 func (NoOpMempool) CountTx() int                                          { return 0 }
 func (NoOpMempool) Remove(sdk.Tx) error                                   { return nil }
 func (NoOpMempool) GetNonceRange(sdk.AccAddress) (uint64, uint64, error)  { panic("not implemented") }
+func (NoOpMempool) Dump(encoder sdk.TxEncoder) [][]byte                   { panic("not implemented") }
