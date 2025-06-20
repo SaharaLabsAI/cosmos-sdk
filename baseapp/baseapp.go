@@ -956,6 +956,7 @@ func (app *BaseApp) runTx(mode execMode, txBytes []byte) (gInfo sdk.GasInfo, res
 		} else {
 			insertCtx = finalizeCtx.Context()
 		}
+		insertCtx = insertCtx.WithPriority(ctx.Priority())
 
 		err = app.mempool.Insert(insertCtx, tx)
 		if err != nil {
