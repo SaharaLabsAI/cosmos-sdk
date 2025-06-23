@@ -9,6 +9,7 @@ import (
 
 	"github.com/cockroachdb/errors"
 	abci "github.com/cometbft/cometbft/abci/types"
+	"github.com/cometbft/cometbft/crypto/tmhash"
 	cmtproto "github.com/cometbft/cometbft/proto/tendermint/types"
 	"github.com/cosmos/gogoproto/proto"
 	"google.golang.org/grpc/codes"
@@ -963,6 +964,11 @@ func (app *BaseApp) Commit() (*abci.ResponseCommit, error) {
 
 	// The SnapshotIfApplicable method will create the snapshot by starting the goroutine
 	app.snapshotManager.SnapshotIfApplicable(header.Height)
+
+	// clear tx cache
+	app.txDecodeCacheLock.Lock()
+	app.txDecodeCache = make(map[[tmhash.Size]byte]sdk.Tx)
+	app.txDecodeCacheLock.Unlock()
 
 	return resp, nil
 }
