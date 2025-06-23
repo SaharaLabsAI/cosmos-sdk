@@ -73,8 +73,10 @@ type BaseApp struct {
 	grpcQueryRouter   *GRPCQueryRouter            // router for redirecting gRPC query calls
 	msgServiceRouter  *MsgServiceRouter           // router for redirecting Msg service messages
 	interfaceRegistry codectypes.InterfaceRegistry
-	txDecoder         sdk.TxDecoder // unmarshal []byte into sdk.Tx
-	txEncoder         sdk.TxEncoder // marshal sdk.Tx into []byte
+	txDecoder         sdk.TxDecoder                // unmarshal []byte into sdk.Tx
+	txEncoder         sdk.TxEncoder                // marshal sdk.Tx into []byte
+	txDecodeCache     map[[tmhash.Size]byte]sdk.Tx // cache transactions that have already been decoded during block-related phases
+	txDecodeCacheLock sync.RWMutex                 // lock for the txDecodeCache safe
 
 	mempool     mempool.Mempool // application side mempool
 	anteHandler sdk.AnteHandler // ante handler for fee and auth
@@ -218,6 +220,7 @@ func NewBaseApp(
 		fauxMerkleMode:   false,
 		sigverifyTx:      true,
 		queryGasLimit:    math.MaxUint64,
+		txDecodeCache:    make(map[[tmhash.Size]byte]sdk.Tx),
 	}
 
 	for _, option := range options {
@@ -891,7 +894,7 @@ func (app *BaseApp) runTx(mode execMode, txBytes []byte, tx sdk.Tx) (gInfo sdk.G
 
 	// if the transaction is not decoded, decode it here
 	if tx == nil {
-		tx, err = app.txDecoder(txBytes)
+		tx, err = app.decodeTx(txBytes, mode)
 		if err != nil {
 			return sdk.GasInfo{GasUsed: 0, GasWanted: 0}, nil, nil, sdkerrors.ErrTxDecode.Wrap(err.Error())
 		}
@@ -1152,7 +1155,7 @@ func (app *BaseApp) PrepareProposalVerifyTx(tx sdk.Tx) ([]byte, error) {
 // returned if the transaction cannot be decoded. <Tx, nil> will be returned if
 // the transaction is valid, otherwise <Tx, err> will be returned.
 func (app *BaseApp) ProcessProposalVerifyTx(txBz []byte) (sdk.Tx, error) {
-	tx, err := app.txDecoder(txBz)
+	tx, err := app.decodeTx(txBz, execModeProcessProposal)
 	if err != nil {
 		return nil, err
 	}
@@ -1207,4 +1210,49 @@ func (app *BaseApp) Close() error {
 // GetBaseApp returns the pointer to itself.
 func (app *BaseApp) GetBaseApp() *BaseApp {
 	return app
+}
+
+func (app *BaseApp) decodeTx(txBytes []byte, mode execMode) (sdk.Tx, error) {
+	var (
+		tx          sdk.Tx
+		shouldCache bool
+	)
+
+	switch mode {
+	case execModeReCheck, execModePrepareProposal, execModeProcessProposal, execModeFinalize:
+		shouldCache = true
+	default:
+		shouldCache = false
+	}
+
+	if !shouldCache {
+		tx, err := app.txDecoder(txBytes)
+		if err != nil {
+			return nil, err
+		}
+		return tx, nil
+	}
+
+	txHash := tmhash.Sum(txBytes)
+	var txHashArr [tmhash.Size]byte
+	copy(txHashArr[:], txHash)
+
+	app.txDecodeCacheLock.RLock()
+	tx, ok := app.txDecodeCache[txHashArr]
+	app.txDecodeCacheLock.RUnlock()
+	if ok {
+		return tx, nil
+	}
+	tx, err := app.txDecoder(txBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	if shouldCache && mode != execModeReCheck {
+		app.txDecodeCacheLock.Lock()
+		app.txDecodeCache[txHashArr] = tx
+		app.txDecodeCacheLock.Unlock()
+	}
+
+	return tx, nil
 }
