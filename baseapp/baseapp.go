@@ -938,7 +938,31 @@ func (app *BaseApp) runTx(mode execMode, txBytes []byte) (gInfo sdk.GasInfo, res
 	}
 
 	if mode == execModeCheck {
-		err = app.mempool.Insert(ctx, tx)
+		// insertCtx retrieves the sender’s nonce_on_chain to verify tx_nonce before inserting the transaction into the mempool
+		// Therefore, set insertCtx to finalizeCtx if finalizeCtx is not nil.
+		// (finalizeCtx is nil when node just start and not do finalize)
+		// Valid tx_nonce range is [nonce_on_chain, max_nonce_in_mempool+1].
+		var insertCtx sdk.Context
+
+		finalizeCtx := app.getState(execModeFinalize)
+		if finalizeCtx == nil {
+			ms, err := app.cms.CacheMultiStoreWithVersion(app.LastBlockHeight())
+			if err != nil {
+				panic(err)
+			}
+			headerInfo := header.Info{
+				Height:  app.LastBlockHeight(),
+				ChainID: app.chainID,
+			}
+			insertCtx = sdk.NewContext(ms, cmtproto.Header{}, true, app.logger).
+				WithHeaderInfo(headerInfo).
+				WithConsensusParams(app.GetConsensusParams(ctx))
+		} else {
+			insertCtx = finalizeCtx.Context()
+		}
+		insertCtx = insertCtx.WithPriority(ctx.Priority())
+
+		err = app.mempool.Insert(insertCtx, tx)
 		if err != nil {
 			return gInfo, nil, anteEvents, err
 		}
