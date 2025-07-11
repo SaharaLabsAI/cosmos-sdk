@@ -2,13 +2,17 @@ package mempool
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"sync"
 
+	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/huandu/skiplist"
 
+	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	sdkerrors "github.com/cosmos/cosmos-sdk/types/errors"
 )
 
 var (
@@ -42,6 +46,9 @@ type (
 
 		// SignerExtractor is an implementation which retrieves signer data from a sdk.Tx
 		SignerExtractor SignerExtractionAdapter
+
+		// GetSequenceFunc is an implementation which fetch account sequence from store
+		GetSequenceFunc func(ctx context.Context, addr sdk.AccAddress) (uint64, error)
 	}
 
 	// PriorityNonceMempool is a mempool implementation that stores txs
@@ -52,12 +59,14 @@ type (
 	// priority to other sender txs and must be partially ordered by both sender-nonce
 	// and priority.
 	PriorityNonceMempool[C comparable] struct {
-		mtx            sync.Mutex
+		mtx            sync.RWMutex
 		priorityIndex  *skiplist.SkipList
 		priorityCounts map[C]int
 		senderIndices  map[string]*skiplist.SkipList
-		scores         map[txMeta[C]]txMeta[C]
-		cfg            PriorityNonceMempoolConfig[C]
+		// senderIndicesEthTx map[string]*skiplist.SkipList
+		scores          map[txMeta[C]]txMeta[C]
+		cfg             PriorityNonceMempoolConfig[C]
+		nonceRangeCache *lru.Cache[string, *nonceRange]
 	}
 
 	// PriorityNonceIterator defines an iterator that is used for mempool iteration
@@ -100,6 +109,14 @@ type (
 		// senderElement is a pointer to the transaction's element in the sender index
 		senderElement *skiplist.Element
 	}
+
+	// nonceRange record account's smallest nonce and the largest nonce in mempool
+	// update while insert and remove tx from mempool
+	// is used by CheckTx and reCheckTx
+	nonceRange struct {
+		firstNonce uint64
+		lastNonce  uint64
+	}
 )
 
 // NewDefaultTxPriority returns a TxPriority comparator using ctx.Priority as
@@ -121,6 +138,10 @@ func DefaultPriorityNonceMempoolConfig() PriorityNonceMempoolConfig[int64] {
 		TxPriority:      NewDefaultTxPriority(),
 		SignerExtractor: NewDefaultSignerExtractionAdapter(),
 	}
+}
+
+func (mp *PriorityNonceMempool[C]) SetGetSequenceFunc(f func(context.Context, sdk.AccAddress) (uint64, error)) {
+	mp.cfg.GetSequenceFunc = f
 }
 
 // skiplistComparable is a comparator for txKeys that first compares priority,
@@ -163,12 +184,19 @@ func NewPriorityMempool[C comparable](cfg PriorityNonceMempoolConfig[C]) *Priori
 	if cfg.SignerExtractor == nil {
 		cfg.SignerExtractor = NewDefaultSignerExtractionAdapter()
 	}
+
+	cache, err := lru.New[string, *nonceRange](1000)
+	if err != nil {
+		panic(fmt.Sprintf("failed to create LRU cache: %v", err))
+	}
+
 	mp := &PriorityNonceMempool[C]{
-		priorityIndex:  skiplist.New(skiplistComparable(cfg.TxPriority)),
-		priorityCounts: make(map[C]int),
-		senderIndices:  make(map[string]*skiplist.SkipList),
-		scores:         make(map[txMeta[C]]txMeta[C]),
-		cfg:            cfg,
+		priorityIndex:   skiplist.New(skiplistComparable(cfg.TxPriority)),
+		priorityCounts:  make(map[C]int),
+		senderIndices:   make(map[string]*skiplist.SkipList),
+		scores:          make(map[txMeta[C]]txMeta[C]),
+		cfg:             cfg,
+		nonceRangeCache: cache,
 	}
 
 	return mp
@@ -238,6 +266,27 @@ func (mp *PriorityNonceMempool[C]) Insert(ctx context.Context, tx sdk.Tx) error 
 		mp.senderIndices[sender] = senderIndex
 	}
 
+	var replaced, senderFirstTx bool
+
+	firstNonce, lastNonce, _ := mp.nonceRangeInternal(sender)
+	if senderIndex.Len() == 0 {
+		senderFirstTx = true
+		if mp.cfg.GetSequenceFunc != nil {
+			accNonceOnChain, err := mp.cfg.GetSequenceFunc(ctx, sig.Signer)
+			if err != nil {
+				return err
+			}
+
+			if nonce < accNonceOnChain {
+				return errorsmod.Wrapf(sdkerrors.ErrInvalidSequence, "txNonce %d can not less than nonce on chain %d", nonce, accNonceOnChain)
+			}
+		}
+	} else {
+		if nonce < firstNonce || nonce > lastNonce+1 {
+			return errorsmod.Wrapf(sdkerrors.ErrInvalidSequence, "expected nonce range: %d-%d, got %d", firstNonce, lastNonce+1, nonce)
+		}
+	}
+
 	// Since mp.priorityIndex is scored by priority, then sender, then nonce, a
 	// changed priority will create a new key, so we must remove the old key and
 	// re-insert it to avoid having the same tx with different priorityIndex indexed
@@ -256,6 +305,7 @@ func (mp *PriorityNonceMempool[C]) Insert(ctx context.Context, tx sdk.Tx) error 
 				tx,
 			)
 		}
+		replaced = true
 
 		mp.priorityIndex.Remove(txMeta[C]{
 			nonce:    nonce,
@@ -275,7 +325,38 @@ func (mp *PriorityNonceMempool[C]) Insert(ctx context.Context, tx sdk.Tx) error 
 	mp.scores[sk] = txMeta[C]{priority: priority}
 	mp.priorityIndex.Set(key, tx)
 
+	if !replaced {
+		if senderFirstTx {
+			mp.nonceRangeCache.Add(sender, &nonceRange{
+				firstNonce: nonce,
+				lastNonce:  nonce,
+			})
+		} else {
+			mp.nonceRangeCache.Add(sender, &nonceRange{
+				firstNonce: firstNonce,
+				lastNonce:  nonce,
+			})
+		}
+	}
+
 	return nil
+}
+
+func (mp *PriorityNonceMempool[C]) Dump(encoder sdk.TxEncoder) [][]byte {
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
+
+	txs := make([][]byte, 0, mp.priorityIndex.Len())
+	for elem := mp.priorityIndex.Front(); elem != nil; elem = elem.Next() {
+		tx := elem.Value.(sdk.Tx)
+		encodedTx, err := encoder(tx)
+		if err != nil {
+			continue
+		}
+		txs = append(txs, encodedTx)
+	}
+
+	return txs
 }
 
 func (i *PriorityNonceIterator[C]) iteratePriority() Iterator {
@@ -355,8 +436,8 @@ func (i *PriorityNonceIterator[C]) Tx() sdk.Tx {
 // NOTE: It is not safe to use this iterator while removing transactions from
 // the underlying mempool.
 func (mp *PriorityNonceMempool[C]) Select(ctx context.Context, txs [][]byte) Iterator {
-	mp.mtx.Lock()
-	defer mp.mtx.Unlock()
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
 	return mp.doSelect(ctx, txs)
 }
 
@@ -377,8 +458,8 @@ func (mp *PriorityNonceMempool[C]) doSelect(_ context.Context, _ [][]byte) Itera
 
 // SelectBy will hold the mutex during the iteration, callback returns if continue.
 func (mp *PriorityNonceMempool[C]) SelectBy(ctx context.Context, txs [][]byte, callback func(sdk.Tx) bool) {
-	mp.mtx.Lock()
-	defer mp.mtx.Unlock()
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
 
 	iter := mp.doSelect(ctx, txs)
 	for iter != nil && callback(iter.Tx()) {
@@ -440,8 +521,8 @@ func senderWeight[C comparable](txPriority TxPriority[C], senderCursor *skiplist
 
 // CountTx returns the number of transactions in the mempool.
 func (mp *PriorityNonceMempool[C]) CountTx() int {
-	mp.mtx.Lock()
-	defer mp.mtx.Unlock()
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
 	return mp.priorityIndex.Len()
 }
 
@@ -482,7 +563,59 @@ func (mp *PriorityNonceMempool[C]) Remove(tx sdk.Tx) error {
 	delete(mp.scores, scoreKey)
 	mp.priorityCounts[score.priority]--
 
+	if senderTxs.Len() > 0 {
+		firstNonce, lastNonce, _ := mp.nonceRangeInternal(sender)
+		mp.nonceRangeCache.Add(sender, &nonceRange{
+			firstNonce: firstNonce,
+			lastNonce:  lastNonce,
+		})
+	} else {
+		mp.nonceRangeCache.Remove(sender)
+	}
+
 	return nil
+}
+
+// GetNonceRange get the nonce range of sender, if there's no sender's txs in mempool, return 0,0,err
+// only called by recheck anteHandle sequnecely
+func (mp *PriorityNonceMempool[C]) GetNonceRange(sender sdk.AccAddress) (uint64, uint64, error) {
+	senderStr := sender.String()
+
+	if cached, ok := mp.nonceRangeCache.Get(senderStr); ok {
+		return cached.firstNonce, cached.lastNonce, nil
+	}
+
+	mp.mtx.RLock()
+	defer mp.mtx.RUnlock()
+
+	firstNonce, lastNonce, err := mp.nonceRangeInternal(senderStr)
+	if err == nil {
+		mp.nonceRangeCache.Add(senderStr, &nonceRange{
+			firstNonce: firstNonce,
+			lastNonce:  lastNonce,
+		})
+	}
+
+	return firstNonce, lastNonce, err
+}
+
+func (mp *PriorityNonceMempool[C]) nonceRangeInternal(senderStr string) (uint64, uint64, error) {
+	senderIndex, ok := mp.senderIndices[senderStr]
+	if !ok {
+		return 0, 0, errors.New("no txs in mempool")
+	}
+
+	firstElem := senderIndex.Front()
+	if firstElem == nil {
+		return 0, 0, errors.New("empty sender index")
+	}
+
+	lastElem := senderIndex.Back()
+	if lastElem == nil {
+		return 0, 0, errors.New("empty sender index")
+	}
+
+	return firstElem.Key().(txMeta[C]).nonce, lastElem.Key().(txMeta[C]).nonce, nil
 }
 
 func IsEmpty[C comparable](mempool Mempool) error {

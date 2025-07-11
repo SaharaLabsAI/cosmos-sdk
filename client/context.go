@@ -19,6 +19,7 @@ import (
 	codectypes "github.com/cosmos/cosmos-sdk/codec/types"
 	"github.com/cosmos/cosmos-sdk/crypto/keyring"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/mempool"
 )
 
 // PreprocessTxFn defines a hook by which chains can preprocess transactions before broadcasting
@@ -59,6 +60,7 @@ type Context struct {
 	Viper                 *viper.Viper
 	LedgerHasProtobuf     bool
 	PreprocessTxHook      PreprocessTxFn
+	Mempool               mempool.Mempool
 
 	// IsAux is true when the signer is an auxiliary signer (e.g. the tipper).
 	IsAux bool
@@ -305,6 +307,11 @@ func (ctx Context) WithLedgerHasProtobuf(val bool) Context {
 // enables chains to preprocess the transaction using the builder.
 func (ctx Context) WithPreprocessTxHook(preprocessFn PreprocessTxFn) Context {
 	ctx.PreprocessTxHook = preprocessFn
+	return ctx
+}
+
+func (ctx Context) WithMempool(mp mempool.Mempool) Context {
+	ctx.Mempool = mp
 	return ctx
 }
 

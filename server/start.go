@@ -124,6 +124,8 @@ type StartCmdOptions struct {
 	AddFlags func(cmd *cobra.Command)
 	// StartCommandHanlder can be used to customize the start command handler
 	StartCommandHandler func(svrCtx *Context, clientCtx client.Context, appCreator types.AppCreator, inProcessConsensus bool, opts StartCmdOptions) error
+
+	Mempool mempool.Mempool
 }
 
 // StartCmd runs the service passed in, either stand-alone or in-process with
@@ -224,6 +226,8 @@ func start(svrCtx *Context, clientCtx client.Context, appCreator types.AppCreato
 	}
 	defer appCleanupFn()
 
+	opts.Mempool = app.GetMempool()
+
 	metrics, err := startTelemetry(svrCfg)
 	if err != nil {
 		return err
@@ -282,6 +286,7 @@ func startStandAlone(svrCtx *Context, svrCfg serverconfig.Config, clientCtx clie
 	}
 
 	if opts.PostSetupStandalone != nil {
+		clientCtx = clientCtx.WithMempool(opts.Mempool)
 		if err := opts.PostSetupStandalone(svrCtx, clientCtx, ctx, g); err != nil {
 			return err
 		}
@@ -348,6 +353,7 @@ func startInProcess(svrCtx *Context, svrCfg serverconfig.Config, clientCtx clien
 	}
 
 	if opts.PostSetup != nil {
+		clientCtx = clientCtx.WithMempool(opts.Mempool)
 		if err := opts.PostSetup(svrCtx, clientCtx, ctx, g); err != nil {
 			return err
 		}
