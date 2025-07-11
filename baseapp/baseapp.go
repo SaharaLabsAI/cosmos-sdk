@@ -938,9 +938,13 @@ func (app *BaseApp) runTx(mode execMode, txBytes []byte) (gInfo sdk.GasInfo, res
 	}
 
 	if mode == execModeCheck {
-		finalizeCtx := app.getState(execModeFinalize)
-
+		// insertCtx retrieves the sender’s nonce_on_chain to verify tx_nonce before inserting the transaction into the mempool
+		// Therefore, set insertCtx to finalizeCtx if finalizeCtx is not nil.
+		// (finalizeCtx is nil when node just start and not do finalize)
+		// Valid tx_nonce range is [nonce_on_chain, max_nonce_in_mempool+1].
 		var insertCtx sdk.Context
+
+		finalizeCtx := app.getState(execModeFinalize)
 		if finalizeCtx == nil {
 			ms, err := app.cms.CacheMultiStoreWithVersion(app.LastBlockHeight())
 			if err != nil {

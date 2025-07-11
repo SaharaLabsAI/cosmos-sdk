@@ -140,7 +140,7 @@ func StartCmdWithOptions(appCreator types.AppCreator, defaultNodeHome string, op
 	}
 
 	if opts.StartCommandHandler == nil {
-		opts.StartCommandHandler = start //
+		opts.StartCommandHandler = start
 	}
 
 	cmd := &cobra.Command{
