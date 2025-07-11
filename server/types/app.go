@@ -17,6 +17,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/client"
 	"github.com/cosmos/cosmos-sdk/server/api"
 	"github.com/cosmos/cosmos-sdk/server/config"
+	"github.com/cosmos/cosmos-sdk/types/mempool"
 )
 
 type (
@@ -58,6 +59,9 @@ type (
 
 		// Return the snapshot manager
 		SnapshotManager() *snapshots.Manager
+
+		// GetMempool return the app-side mempool
+		GetMempool() mempool.Mempool
 
 		// Close is called in start cmd to gracefully cleanup resources.
 		// Must be safe to be called multiple times.

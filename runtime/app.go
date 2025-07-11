@@ -24,6 +24,7 @@ import (
 	"github.com/cosmos/cosmos-sdk/server/config"
 	servertypes "github.com/cosmos/cosmos-sdk/server/types"
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/mempool"
 	"github.com/cosmos/cosmos-sdk/types/module"
 	authtx "github.com/cosmos/cosmos-sdk/x/auth/tx"
 )
@@ -265,6 +266,10 @@ func (a *App) UnsafeFindStoreKey(storeKey string) storetypes.StoreKey {
 	}
 
 	return a.storeKeys[i]
+}
+
+func (a *App) GetMempool() mempool.Mempool {
+	return a.Mempool()
 }
 
 var _ servertypes.Application = &App{}
