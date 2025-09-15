@@ -558,6 +558,14 @@ func (mp *PriorityNonceMempool[C]) Remove(tx sdk.Tx) error {
 
 	if senderTxs.Len() > 0 {
 		firstNonce, lastNonce, _ := mp.nonceRangeInternal(sender)
+
+		if firstNonce == tk.nonce {
+			firstNonce = tk.nonce + 1
+		}
+		if firstNonce > lastNonce {
+			firstNonce = lastNonce
+		}
+
 		mp.nonceRangeCache.Add(sender, &nonceRange{
 			firstNonce: firstNonce,
 			lastNonce:  lastNonce,
