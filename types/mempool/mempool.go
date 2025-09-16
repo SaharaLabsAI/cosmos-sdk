@@ -40,6 +40,12 @@ type ExtMempool interface {
 	SelectBy(context.Context, [][]byte, func(sdk.Tx) bool)
 }
 
+type PriorityMempool interface {
+	ExtMempool
+
+	TopPriorityTxAtNonce(sender sdk.AccAddress, nonce uint64) (sdk.Tx, error)
+}
+
 // Iterator defines an app-side mempool iterator interface that is as minimal as
 // possible. The order of iteration is determined by the app-side mempool
 // implementation.
