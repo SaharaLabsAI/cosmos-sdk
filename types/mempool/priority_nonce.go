@@ -1,13 +1,13 @@
 package mempool
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math"
 	"sync"
 
+	"github.com/alphadose/haxmap"
 	"github.com/cosmos/gogoproto/proto"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/huandu/skiplist"
@@ -68,9 +68,10 @@ type (
 		priorityCounts map[C]int
 		senderIndices  map[string]*skiplist.SkipList
 		// senderIndicesEthTx map[string]*skiplist.SkipList
-		scores          map[txMeta[C]]txMeta[C]
-		cfg             PriorityNonceMempoolConfig[C]
-		nonceRangeCache *lru.Cache[string, *nonceRange]
+		scores           map[txMeta[C]]txMeta[C]
+		cfg              PriorityNonceMempoolConfig[C]
+		nonceRangeCache  *lru.Cache[string, *nonceRange]
+		priorityTxHashes *haxmap.Map[string, bool]
 	}
 
 	// PriorityNonceIterator defines an iterator that is used for mempool iteration
@@ -195,12 +196,13 @@ func NewPriorityMempool[C comparable](cfg PriorityNonceMempoolConfig[C]) *Priori
 	}
 
 	mp := &PriorityNonceMempool[C]{
-		priorityIndex:   skiplist.New(skiplistComparable(cfg.TxPriority)),
-		priorityCounts:  make(map[C]int),
-		senderIndices:   make(map[string]*skiplist.SkipList),
-		scores:          make(map[txMeta[C]]txMeta[C]),
-		cfg:             cfg,
-		nonceRangeCache: cache,
+		priorityIndex:    skiplist.New(skiplistComparable(cfg.TxPriority)),
+		priorityCounts:   make(map[C]int),
+		senderIndices:    make(map[string]*skiplist.SkipList),
+		scores:           make(map[txMeta[C]]txMeta[C]),
+		cfg:              cfg,
+		nonceRangeCache:  cache,
+		priorityTxHashes: haxmap.New[string, bool](5000),
 	}
 
 	return mp
@@ -316,7 +318,9 @@ func (mp *PriorityNonceMempool[C]) Insert(ctx context.Context, tx sdk.Tx) error 
 		mp.priorityCounts[oldScore.priority]--
 
 		tk := txMeta[C]{nonce: nonce, priority: oldScore.priority, sender: sender, weight: oldScore.weight}
-		senderIndex.Remove(tk)
+
+		rmTx := senderIndex.Remove(tk).Value.(sdk.Tx)
+		mp.priorityTxHashes.Del(string(hashTx(rmTx)))
 	}
 
 	mp.priorityCounts[priority]++
@@ -327,6 +331,7 @@ func (mp *PriorityNonceMempool[C]) Insert(ctx context.Context, tx sdk.Tx) error 
 
 	mp.scores[sk] = txMeta[C]{priority: priority}
 	mp.priorityIndex.Set(key, tx)
+	mp.priorityTxHashes.Set(string(hashTx(tx)), true)
 
 	if !replaced {
 		if senderFirstTx {
@@ -532,6 +537,11 @@ func (mp *PriorityNonceMempool[C]) CountTx() int {
 // Remove removes a transaction from the mempool in O(log n) time, returning an
 // error if unsuccessful.
 func (mp *PriorityNonceMempool[C]) Remove(tx sdk.Tx) error {
+	txHash := string(hashTx(tx))
+	if _, ok := mp.priorityTxHashes.Get(txHash); !ok {
+		return nil
+	}
+
 	mp.mtx.Lock()
 	defer mp.mtx.Unlock()
 	sigs, err := mp.cfg.SignerExtractor.GetSigners(tx)
@@ -558,14 +568,7 @@ func (mp *PriorityNonceMempool[C]) Remove(tx sdk.Tx) error {
 		return fmt.Errorf("sender %s not found", sender)
 	}
 
-	pElem := mp.priorityIndex.Find(tk)
-	if pElem == nil {
-		return nil
-	}
-	if !bytes.Equal(hashTx(tx), hashTx(pElem.Value.(sdk.Tx))) {
-		return nil
-	}
-
+	mp.priorityTxHashes.Del(txHash)
 	mp.priorityIndex.Remove(tk)
 	senderTxs.Remove(tk)
 	delete(mp.scores, scoreKey)
