@@ -1,14 +1,18 @@
 package mempool
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"math"
 	"sync"
 
+	"github.com/cosmos/gogoproto/proto"
 	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/huandu/skiplist"
+
+	cmttypes "github.com/cometbft/cometbft/types"
 
 	errorsmod "cosmossdk.io/errors"
 	sdk "github.com/cosmos/cosmos-sdk/types"
@@ -310,6 +314,9 @@ func (mp *PriorityNonceMempool[C]) Insert(ctx context.Context, tx sdk.Tx) error 
 			weight:   oldScore.weight,
 		})
 		mp.priorityCounts[oldScore.priority]--
+
+		tk := txMeta[C]{nonce: nonce, priority: oldScore.priority, sender: sender, weight: oldScore.weight}
+		senderIndex.Remove(tk)
 	}
 
 	mp.priorityCounts[priority]++
@@ -551,6 +558,14 @@ func (mp *PriorityNonceMempool[C]) Remove(tx sdk.Tx) error {
 		return fmt.Errorf("sender %s not found", sender)
 	}
 
+	pElem := mp.priorityIndex.Find(tk)
+	if pElem == nil {
+		return nil
+	}
+	if !bytes.Equal(hashTx(tx), hashTx(pElem.Value.(sdk.Tx))) {
+		return nil
+	}
+
 	mp.priorityIndex.Remove(tk)
 	senderTxs.Remove(tk)
 	delete(mp.scores, scoreKey)
@@ -623,6 +638,10 @@ func (mp *PriorityNonceMempool[C]) nonceRangeInternal(senderStr string) (uint64,
 		return 0, 0, errors.New("no txs in mempool")
 	}
 
+	if senderIndex.Len() == 0 {
+		return 0, 0, errors.New("no txs in mempool")
+	}
+
 	firstElem := senderIndex.Front()
 	if firstElem == nil {
 		return 0, 0, errors.New("empty sender index")
@@ -665,4 +684,18 @@ func IsEmpty[C comparable](mempool Mempool) error {
 	}
 
 	return nil
+}
+
+func hashTx(tx sdk.Tx) []byte {
+	txs := make(cmttypes.Txs, 0)
+
+	for _, msg := range tx.GetMsgs() {
+		bytes, err := proto.Marshal(msg)
+		if err != nil {
+			panic(fmt.Sprintf("marshal tx fail err %s", err.Error()))
+		}
+		txs = append(txs, bytes)
+	}
+
+	return txs.Hash()
 }
