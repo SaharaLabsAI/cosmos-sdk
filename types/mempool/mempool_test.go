@@ -68,13 +68,22 @@ func (tx testTx) GetSignaturesV2() (res []txsigning.SignatureV2, err error) {
 	return res, nil
 }
 
+type TestMsg struct {
+	b []byte
+}
+
+func (t *TestMsg) Marshal() ([]byte, error) { return t.b, nil }
+func (t *TestMsg) String() string           { return fmt.Sprintf("Bytes: %v", t.b) }
+func (t *TestMsg) ProtoMessage()            {}
+func (t *TestMsg) Reset()                   {}
+
 var (
 	_ sdk.Tx                  = (*testTx)(nil)
 	_ signing.SigVerifiableTx = (*testTx)(nil)
 	_ cryptotypes.PubKey      = (*testPubKey)(nil)
 )
 
-func (tx testTx) GetMsgs() []sdk.Msg { return nil }
+func (tx testTx) GetMsgs() []sdk.Msg { return []sdk.Msg{&TestMsg{b: []byte{byte(tx.id)}}} }
 
 func (tx testTx) GetMsgsV2() ([]protov2.Message, error) { return nil, nil }
 
