@@ -599,6 +599,31 @@ func (mp *PriorityNonceMempool[C]) GetNonceRange(sender sdk.AccAddress) (uint64,
 	return firstNonce, lastNonce, err
 }
 
+func (mp *PriorityNonceMempool[C]) TopPriorityTxAtNonce(sender sdk.AccAddress, nonce uint64) (sdk.Tx, error) {
+	mp.mtx.Lock()
+	defer mp.mtx.Unlock()
+
+	sk := txMeta[C]{nonce: nonce, sender: sender.String()}
+	score, ok := mp.scores[sk]
+	if !ok {
+		return nil, fmt.Errorf("no score for sender %s nonce %d", sender.String(), nonce)
+	}
+
+	pk := txMeta[C]{nonce: nonce, priority: score.priority, sender: sender.String()}
+
+	elem := mp.priorityIndex.Get(pk)
+	if elem == nil {
+		return nil, fmt.Errorf("no priority tx found for sender %s nonce %d", sender.String(), nonce)
+	}
+
+	tx, ok := elem.Value.(sdk.Tx)
+	if !ok {
+		return nil, errors.New("unknown priority tx in mempool")
+	}
+
+	return tx, nil
+}
+
 func (mp *PriorityNonceMempool[C]) nonceRangeInternal(senderStr string) (uint64, uint64, error) {
 	senderIndex, ok := mp.senderIndices[senderStr]
 	if !ok {
