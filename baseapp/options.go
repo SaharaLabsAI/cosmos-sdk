@@ -403,3 +403,8 @@ func (app *BaseApp) SetMsgServiceRouter(msgServiceRouter *MsgServiceRouter) {
 func (app *BaseApp) SetGRPCQueryRouter(grpcQueryRouter *GRPCQueryRouter) {
 	app.grpcQueryRouter = grpcQueryRouter
 }
+
+// NOTE: For test purposal only
+func (app *BaseApp) ReplaceSetPrepareProposalForTest(handler sdk.PrepareProposalHandler) {
+	app.prepareProposal = handler
+}
