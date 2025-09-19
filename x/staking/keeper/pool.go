@@ -6,6 +6,7 @@ import (
 	"cosmossdk.io/math"
 
 	sdk "github.com/cosmos/cosmos-sdk/types"
+	distributiontypes "github.com/cosmos/cosmos-sdk/x/distribution/types"
 	"github.com/cosmos/cosmos-sdk/x/staking/types"
 )
 
@@ -55,7 +56,7 @@ func (k Keeper) burnBondedTokens(ctx context.Context, amt math.Int) error {
 
 	coins := sdk.NewCoins(sdk.NewCoin(bondDenom, amt))
 
-	return k.bankKeeper.BurnCoins(ctx, types.BondedPoolName, coins)
+	return k.bankKeeper.SendCoinsFromModuleToModule(ctx, types.BondedPoolName, distributiontypes.ModuleName, coins)
 }
 
 // burnNotBondedTokens burns coins from the not bonded pool module account
@@ -72,7 +73,7 @@ func (k Keeper) burnNotBondedTokens(ctx context.Context, amt math.Int) error {
 
 	coins := sdk.NewCoins(sdk.NewCoin(bondDenom, amt))
 
-	return k.bankKeeper.BurnCoins(ctx, types.NotBondedPoolName, coins)
+	return k.bankKeeper.SendCoinsFromModuleToModule(ctx, types.NotBondedPoolName, distributiontypes.ModuleName, coins)
 }
 
 // TotalBondedTokens total staking tokens supply which is bonded
