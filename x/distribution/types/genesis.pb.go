@@ -5,15 +5,16 @@ package types
 
 import (
 	fmt "fmt"
+	io "io"
+	math "math"
+	math_bits "math/bits"
+
 	_ "github.com/cosmos/cosmos-proto"
 	github_com_cosmos_cosmos_sdk_types "github.com/cosmos/cosmos-sdk/types"
 	types "github.com/cosmos/cosmos-sdk/types"
 	_ "github.com/cosmos/cosmos-sdk/types/tx/amino"
 	_ "github.com/cosmos/gogoproto/gogoproto"
 	proto "github.com/cosmos/gogoproto/proto"
-	io "io"
-	math "math"
-	math_bits "math/bits"
 )
 
 // Reference imports to suppress errors if they are not otherwise used.
@@ -348,6 +349,8 @@ type GenesisState struct {
 	DelegatorStartingInfos []DelegatorStartingInfoRecord `protobuf:"bytes,9,rep,name=delegator_starting_infos,json=delegatorStartingInfos,proto3" json:"delegator_starting_infos"`
 	// fee_pool defines the validator slash events at genesis.
 	ValidatorSlashEvents []ValidatorSlashEventRecord `protobuf:"bytes,10,rep,name=validator_slash_events,json=validatorSlashEvents,proto3" json:"validator_slash_events"`
+	// validator_bonus_config defines the bonus configuration for validators
+	ValidatorBonusConfig ValidatorBonusConfig `protobuf:"bytes,11,opt,name=validator_bonus_config,json=validatorBonusConfig,proto3" json:"validator_bonus_config"`
 }
 
 func (m *GenesisState) Reset()         { *m = GenesisState{} }
