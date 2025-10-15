@@ -81,11 +81,15 @@ func (k Keeper) AllocateTokens(ctx context.Context, totalPreviousPower int64, bo
 }
 
 // AllocateTokensToValidator allocate tokens to a particular validator,
-// splitting according to commission.
+// splitting according to commission and applying bonus if applicable.
 func (k Keeper) AllocateTokensToValidator(ctx context.Context, val stakingtypes.ValidatorI, tokens sdk.DecCoins) error {
+	// Check for bonus eligibility and calculate bonus
+	bonusTokens := k.calculateValidatorBonus(ctx, val, tokens)
+	totalTokens := tokens.Add(bonusTokens...)
+
 	// split tokens between validator and delegators according to commission
-	commission := tokens.MulDec(val.GetCommission())
-	shared := tokens.Sub(commission)
+	commission := totalTokens.MulDec(val.GetCommission())
+	shared := totalTokens.Sub(commission)
 
 	valBz, err := k.stakingKeeper.ValidatorAddressCodec().StringToBytes(val.GetOperator())
 	if err != nil {
@@ -128,16 +132,44 @@ func (k Keeper) AllocateTokensToValidator(ctx context.Context, val stakingtypes.
 	sdkCtx.EventManager().EmitEvent(
 		sdk.NewEvent(
 			types.EventTypeRewards,
-			sdk.NewAttribute(sdk.AttributeKeyAmount, tokens.String()),
+			sdk.NewAttribute(sdk.AttributeKeyAmount, totalTokens.String()),
 			sdk.NewAttribute(types.AttributeKeyValidator, val.GetOperator()),
 		),
 	)
+
+	// Emit bonus event if applicable
+	if !bonusTokens.IsZero() {
+		sdkCtx.EventManager().EmitEvent(
+			sdk.NewEvent(
+				types.EventTypeValidatorBonus,
+				sdk.NewAttribute(sdk.AttributeKeyAmount, bonusTokens.String()),
+				sdk.NewAttribute(types.AttributeKeyValidator, val.GetOperator()),
+			),
+		)
+	}
 
 	outstanding, err := k.GetValidatorOutstandingRewards(ctx, valBz)
 	if err != nil {
 		return err
 	}
 
-	outstanding.Rewards = outstanding.Rewards.Add(tokens...)
+	outstanding.Rewards = outstanding.Rewards.Add(totalTokens...)
 	return k.SetValidatorOutstandingRewards(ctx, valBz, outstanding)
+}
+
+// calculateValidatorBonus calculates bonus tokens for a validator based on genesis configuration
+func (k Keeper) calculateValidatorBonus(ctx context.Context, val stakingtypes.ValidatorI, baseTokens sdk.DecCoins) sdk.DecCoins {
+	// Get genesis state to access bonus configuration
+	genesisState, err := k.GetGenesisState(ctx)
+	if err != nil {
+		return sdk.NewDecCoins()
+	}
+
+	// Check if validator is eligible for bonus
+	if !genesisState.ValidatorBonusConfig.IsEligibleForBonus(val.GetOperator(), uint64(sdk.UnwrapSDKContext(ctx).BlockHeight())) {
+		return sdk.NewDecCoins()
+	}
+
+	// Calculate bonus tokens
+	return genesisState.ValidatorBonusConfig.CalculateBonus(baseTokens)
 }

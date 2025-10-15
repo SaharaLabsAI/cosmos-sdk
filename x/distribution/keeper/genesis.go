@@ -48,6 +48,12 @@ func (k Keeper) InitGenesis(ctx sdk.Context, data types.GenesisState) {
 		panic(err)
 	}
 
+	// Store validator bonus configuration
+	err = k.SetValidatorBonusConfig(ctx, data.ValidatorBonusConfig)
+	if err != nil {
+		panic(err)
+	}
+
 	for _, rew := range data.OutstandingRewards {
 		valAddr, err := k.stakingKeeper.ValidatorAddressCodec().StringToBytes(rew.ValidatorAddress)
 		if err != nil {
@@ -230,5 +236,11 @@ func (k Keeper) ExportGenesis(ctx sdk.Context) *types.GenesisState {
 		},
 	)
 
-	return types.NewGenesisState(params, feePool, dwi, pp, outstanding, acc, his, cur, dels, slashes)
+	// Get validator bonus configuration
+	bonusConfig, err := k.GetValidatorBonusConfig(ctx)
+	if err != nil {
+		panic(err)
+	}
+
+	return types.NewGenesisState(params, feePool, dwi, pp, outstanding, acc, his, cur, dels, slashes, bonusConfig)
 }

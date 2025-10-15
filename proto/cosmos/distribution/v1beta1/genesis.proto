@@ -111,6 +111,21 @@ message ValidatorSlashEventRecord {
   ValidatorSlashEvent validator_slash_event = 4 [(gogoproto.nullable) = false, (amino.dont_omitempty) = true];
 }
 
+// ValidatorBonusConfig defines bonus configuration for validators
+message ValidatorBonusConfig {
+  option (gogoproto.equal)           = false;
+  option (gogoproto.goproto_getters) = false;
+
+  // validator_whitelist defines the list of validator addresses eligible for bonus
+  repeated string validator_whitelist = 1 [(cosmos_proto.scalar) = "cosmos.ValidatorAddressString"];
+
+  // bonus_height_to defines the block height until which bonus applies
+  uint64 bonus_height_to = 2;
+
+  // bonus_percent defines the percentage bonus (e.g., 10 for 10% bonus)
+  string bonus_percent = 3 [(gogoproto.customtype) = "cosmossdk.io/math.LegacyDec", (gogoproto.nullable) = false];
+}
+
 // GenesisState defines the distribution module's genesis state.
 message GenesisState {
   option (gogoproto.equal)           = false;
@@ -152,4 +167,7 @@ message GenesisState {
   // fee_pool defines the validator slash events at genesis.
   repeated ValidatorSlashEventRecord validator_slash_events = 10
       [(gogoproto.nullable) = false, (amino.dont_omitempty) = true];
+
+  // validator_bonus_config defines the bonus configuration for validators
+  ValidatorBonusConfig validator_bonus_config = 11 [(gogoproto.nullable) = false, (amino.dont_omitempty) = true];
 }
