@@ -5,16 +5,6 @@ import (
 	sdk "github.com/cosmos/cosmos-sdk/types"
 )
 
-// ValidatorBonusConfig defines bonus configuration for validators
-type ValidatorBonusConfig struct {
-	// ValidatorWhitelist defines the list of validator addresses eligible for bonus
-	ValidatorWhitelist []string `json:"validator_whitelist"`
-	// BonusHeightTo defines the block height until which bonus applies
-	BonusHeightTo uint64 `json:"bonus_height_to"`
-	// BonusPercent defines the percentage bonus (e.g., 10 for 10% bonus)
-	BonusPercent math.LegacyDec `json:"bonus_percent"`
-}
-
 // NewValidatorBonusConfig creates a new ValidatorBonusConfig
 func NewValidatorBonusConfig(whitelist []string, heightTo uint64, bonusPercent math.LegacyDec) ValidatorBonusConfig {
 	return ValidatorBonusConfig{
