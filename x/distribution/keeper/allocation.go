@@ -83,13 +83,16 @@ func (k Keeper) AllocateTokens(ctx context.Context, totalPreviousPower int64, bo
 // AllocateTokensToValidator allocate tokens to a particular validator,
 // splitting according to commission and applying bonus if applicable.
 func (k Keeper) AllocateTokensToValidator(ctx context.Context, val stakingtypes.ValidatorI, tokens sdk.DecCoins) error {
-	// Check for bonus eligibility and calculate bonus
+	// split tokens between validator and delegators according to commission
+	commission := tokens.MulDec(val.GetCommission())
+	shared := tokens.Sub(commission)
+
+	// add bonus only to validator's commission
 	bonusTokens := k.calculateValidatorBonus(ctx, val, tokens)
+	commission = commission.Add(bonusTokens...)
 	totalTokens := tokens.Add(bonusTokens...)
 
-	// split tokens between validator and delegators according to commission
-	commission := totalTokens.MulDec(val.GetCommission())
-	shared := totalTokens.Sub(commission)
+	k.Logger(ctx).Debug("Allocate tokens to validator with bonus", "totalTokens", totalTokens.String(), "baseToken", tokens.String(), "commission", commission.String(), "bonusTokens", bonusTokens.String())
 
 	valBz, err := k.stakingKeeper.ValidatorAddressCodec().StringToBytes(val.GetOperator())
 	if err != nil {
@@ -159,17 +162,13 @@ func (k Keeper) AllocateTokensToValidator(ctx context.Context, val stakingtypes.
 
 // calculateValidatorBonus calculates bonus tokens for a validator based on genesis configuration
 func (k Keeper) calculateValidatorBonus(ctx context.Context, val stakingtypes.ValidatorI, baseTokens sdk.DecCoins) sdk.DecCoins {
-	// Get genesis state to access bonus configuration
-	genesisState, err := k.GetGenesisState(ctx)
-	if err != nil {
-		return sdk.NewDecCoins()
-	}
+	validatorBonusConfig, _ := k.GetValidatorBonusConfig(ctx)
 
 	// Check if validator is eligible for bonus
-	if !genesisState.ValidatorBonusConfig.IsEligibleForBonus(val.GetOperator(), uint64(sdk.UnwrapSDKContext(ctx).BlockHeight())) {
+	if !validatorBonusConfig.IsEligibleForBonus(val.GetOperator(), uint64(sdk.UnwrapSDKContext(ctx).BlockHeight())) {
 		return sdk.NewDecCoins()
 	}
 
 	// Calculate bonus tokens
-	return genesisState.ValidatorBonusConfig.CalculateBonus(baseTokens)
+	return validatorBonusConfig.CalculateBonus(baseTokens)
 }
