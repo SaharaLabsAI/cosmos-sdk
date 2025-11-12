@@ -153,7 +153,7 @@ func (k Keeper) Slash(ctx context.Context, consAddr sdk.ConsAddress, infractionH
 			"no validator slashing because slash amount is zero",
 			"validator", validator.GetOperator(),
 			"slash_factor", slashFactor.String(),
-			"burned", tokensToBurn,
+			"burned_to_distribution", tokensToBurn,
 			"validatorTokens", validator.Tokens,
 		)
 		return math.NewInt(0), nil
@@ -196,7 +196,7 @@ func (k Keeper) Slash(ctx context.Context, consAddr sdk.ConsAddress, infractionH
 		"validator slashed by slash factor",
 		"validator", validator.GetOperator(),
 		"slash_factor", slashFactor.String(),
-		"burned", tokensToBurn,
+		"burned_to_distribution", tokensToBurn,
 	)
 	return tokensToBurn, nil
 }

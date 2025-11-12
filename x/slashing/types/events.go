@@ -12,6 +12,7 @@ const (
 	AttributeKeyJailed       = "jailed"
 	AttributeKeyMissedBlocks = "missed_blocks"
 	AttributeKeyBurnedCoins  = "burned_coins"
+	AttributeKeySlashedToDistributionCoins = "slashed_to_distribution_coins"
 
 	AttributeValueUnspecified      = "unspecified"
 	AttributeValueDoubleSign       = "double_sign"
